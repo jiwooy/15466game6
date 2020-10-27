@@ -56,10 +56,11 @@ bool drop_piece(std::vector<std::vector<bool>> piece, uint8_t ind, uint8_t btype
     std::vector<int> cols;
     std::vector<int> rowSpaces;
 	//printf("row cols:\n");
-	for (int i = 0; i < piece.size(); i++) {
-		for (int j = 0; j < piece[0].size(); j++) {
+	int prow = (int)piece.size();
+	int pcol = (int)piece[0].size();
+	for (int i = 0; i < prow; i++) {
+		for (int j = 0; j < pcol; j++) {
 			if (piece[i][j]) {
-				int final_row = (int)(piece.size()) - i;
 				rows.push_back(i);
                 cols.push_back(ind + j);
 				//printf("%d %d\n", i, ind + j);
@@ -67,7 +68,7 @@ bool drop_piece(std::vector<std::vector<bool>> piece, uint8_t ind, uint8_t btype
 		}
 	}
 	//printf("rowloops: ");
-    for (int i = 0; i < cols.size(); i++) {
+    for (int i = 0; i < (int)cols.size(); i++) {
 		int rowLoop = 0;
 		while (rowLoop < 12 && t->board[rowLoop][cols[i]] == 7) {
 			rowLoop++;
@@ -77,16 +78,15 @@ bool drop_piece(std::vector<std::vector<bool>> piece, uint8_t ind, uint8_t btype
 	}
         
     std::vector<int> newList;
-    for (int i = 0; i < rows.size(); i++) {
+    for (int i = 0; i < (int)rows.size(); i++) {
 		newList.push_back(rowSpaces[i] - rows[i] - 1);
 	}
     int row_place = *(std::min_element(newList.begin(), newList.end()));
 	//printf("row place %d\n", row_place);
 	//print_piece(piece);
-	for (int i = 0; i < piece.size(); i++){
-		for (int j = 0; j < piece[0].size(); j++) {
+	for (int i = 0; i < prow; i++){
+		for (int j = 0; j < pcol; j++) {
 			if (row_place + i < 0) {
-				//printf("lost!\n");
 				return true;
 			}
 			if (piece[i][j]) t->board[row_place + i][j + ind] = btype;
@@ -187,7 +187,6 @@ int main(int argc, char **argv) {
 	short num_sent = 10000;
 	short block_name;
 	bool block_erase = false;
-	bool block_old = false;
 	bool update_board = false;
 	float max_age = 6.0f;
 	short score = 0;
@@ -353,9 +352,8 @@ int main(int argc, char **argv) {
 		}
 
 		for (auto &[c, player] : players) {
-			(void)player; //work around "unused variable" warning on whatever g++ github actions uses
 			for (auto &[c2, player2] : players) {
-				(void)player2;
+				(void)c2;
 				if (player.name != player2.name) {
 					//printf("send playe coord\n");
 					c->send('p');

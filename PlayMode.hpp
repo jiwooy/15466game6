@@ -48,15 +48,15 @@ struct PlayMode : Mode {
 	virtual void update(float elapsed) override;
 	virtual void draw(glm::uvec2 const &drawable_size) override;
 	virtual void gen_block(uint8_t btype, short name);
-	void PlayMode::move_belt();
-	void PlayMode::delete_belt();
-	bool PlayMode::pickup();
-	uint8_t PlayMode::place_block();
-	void PlayMode::rotate_block();
-	void PlayMode::get_board();
-	void PlayMode::gen_piece(uint8_t ptype, size_t row, size_t col);
-	void PlayMode::receive_erase(short name, char erase_type);
-	void PlayMode::boundaries();
+	void move_belt();
+	void delete_belt();
+	bool pickup();
+	uint8_t place_block();
+	void rotate_block();
+	void get_board();
+	void gen_piece(uint8_t ptype, size_t row, size_t col);
+	void receive_erase(short name, char erase_type);
+	void boundaries();
 
 	//----- game state -----
 	
@@ -65,7 +65,7 @@ struct PlayMode : Mode {
 
 	std::deque<active_blocks *> belt;
 
-	Scene::Drawable *pieces[12][10] = {0};
+	Scene::Drawable *pieces[12][10] = {{0}};
 	
 	int mask = 0x000000ff;
 	bool lost = false;

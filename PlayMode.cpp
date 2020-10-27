@@ -245,7 +245,7 @@ void PlayMode::update(float elapsed) {
 		} else { assert(event == Connection::OnRecv);
 			//std::cout << "[" << c->socket << "] recv'd data. Current buffer:\n" << hex_dump(c->recv_buffer); std::cout.flush();
 			//expecting message(s) like 'm' + 3-byte length + length bytes of text:
-			int total = 0;
+			uint32_t total = 0;
 			while (c->recv_buffer.size() >= 4) {
 				//std::cout << "[" << c->socket << "] recv'd data. Current buffer:\n" << hex_dump(c->recv_buffer); std::cout.flush();
 				char type = c->recv_buffer[0];
