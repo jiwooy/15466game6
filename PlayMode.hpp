@@ -56,6 +56,7 @@ struct PlayMode : Mode {
 	void PlayMode::get_board();
 	void PlayMode::gen_piece(uint8_t ptype, size_t row, size_t col);
 	void PlayMode::receive_erase(short name, char erase_type);
+	void PlayMode::boundaries();
 
 	//----- game state -----
 	
@@ -66,7 +67,10 @@ struct PlayMode : Mode {
 
 	Scene::Drawable *pieces[12][10] = {0};
 	
-	
+	int mask = 0x000000ff;
+	bool lost = false;
+	short score;
+
 	Scene::Drawable *p = nullptr;
 	Scene::Transform *pTrans = nullptr;
 	Scene::Drawable::Pipeline pPipe;

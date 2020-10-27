@@ -42,6 +42,11 @@ Load< Scene > tetris_scene(LoadTagDefault, []() -> Scene const * {
 	});
 });
 
+typedef union {
+  int i;
+  float f;
+} u;
+
 PlayMode::PlayMode(Client &client_) : client(client_) {
 	scene = Scene(*tetris_scene);
 	for (auto drawable : scene.drawables) {
@@ -178,8 +183,6 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			);
 		}
 	}
-
-
 	return false;
 }
 
@@ -187,7 +190,7 @@ void PlayMode::update(float elapsed) {
 
 	//queue data for sending to server:
 	//TODO: send something that makes sense for your game
-	constexpr float PlayerSpeed = 8.0f;
+	constexpr float PlayerSpeed = 16.0f;
 	glm::vec2 move = glm::vec2(0.0f);
 	if (left.pressed && !right.pressed) move.x =-1.0f;
 	if (!left.pressed && right.pressed) move.x = 1.0f;
@@ -218,13 +221,19 @@ void PlayMode::update(float elapsed) {
 	camera->transform->position.x += remain.x;
 	//printf("%f %f %f\n", remain.x, remain.y, remain.z);
 	camera->transform->position.y += remain.y;
+	boundaries();
+	if (move != glm::vec2(0.0f)) {
+		client.connections.back().send('m'); //m for move
+		client.connections.back().send(camera->transform->position.x); 
+		client.connections.back().send(camera->transform->position.y); 
+		client.connections.back().send('e');
+		//printf("sent coords %x %x\n", u1.i, u2.i);
+	}
 	if (held != nullptr) {
 		held->t->position.x += remain.x;
-		//printf("%f %f %f\n", remain.x, remain.y, remain.z);
 		held->t->position.y += remain.y;
 	}
 	move_belt();
-	
 
 	//send/receive data:
 	client.poll([this](Connection *c, Connection::Event event){
@@ -242,30 +251,51 @@ void PlayMode::update(float elapsed) {
 				char type = c->recv_buffer[0];
 				char end = c->recv_buffer.back();
 				//printf("%c %c %zd\n", type, end, c->recv_buffer.size());
-				if (!(type == 'm' || type == 'b' || type == 't')) {
+				if (!(type == 'm' || type == 'b' || type == 't' || type == 'p' || type == 'f')) {
 					throw std::runtime_error("Server sent unknown message type '" + std::to_string(type) + "'");
 				}
 				if (end != 'e') break;
+				if (type == 'f') {
+					score = (c->recv_buffer[2] << 8) | c->recv_buffer[1];
+					lost = true;
+				}
+				if (type == 'p') {
+					//union conversion by Anon Mail from
+					//https://stackoverflow.com/questions/11035442/how-to-convert-float-to-int-preserving-bit-value
+					int xpos = (((c->recv_buffer[total+4] & mask) << 24) | ((c->recv_buffer[total+3] & mask)  << 16) | ((c->recv_buffer[total+2] & mask)  << 8) | (c->recv_buffer[total+1] & mask));
+					int ypos = (((c->recv_buffer[total+8] & mask) << 24) | ((c->recv_buffer[total+7] & mask)  << 16) | ((c->recv_buffer[total+6] & mask)  << 8) | (c->recv_buffer[total+5] & mask));
+					u u1;
+					u u2;
+					u1.i = xpos;
+					u2.i = ypos;
+					//printf("other hex %x %x\n", u1.i, u2.i);
+					//printf("other player %f %f\n", u1.f, u2.f);
+					//printf("x %x %x %x %x\n", c->recv_buffer[total+4], c->recv_buffer[total+3], c->recv_buffer[total+2], c->recv_buffer[total+1]);
+					//printf("y %x %x %x %x\n", c->recv_buffer[total+8], c->recv_buffer[total+7], c->recv_buffer[total+6], c->recv_buffer[total+5]);
+					pTrans->position.x = u1.f;
+					pTrans->position.y = u2.f;
+					total += 10;
+					if (c->recv_buffer.size() > total) type = c->recv_buffer[total];
+				}
 				if (type == 't') {
-					short name = (c->recv_buffer[3] << 8) | c->recv_buffer[2];
-					char erase_type = c->recv_buffer[1];
+					short name = (c->recv_buffer[total + 3] << 8) | c->recv_buffer[total+2];
+					char erase_type = c->recv_buffer[total+1];
 					receive_erase(name, erase_type);
 					total += 5; // 't' plus 2
 					if (c->recv_buffer.size() > total) type = c->recv_buffer[total];
 				}
 				if (type == 'b') {
-					printf("received bliock\n");
 					uint8_t block_type = c->recv_buffer[total + 1] - '0' - 208;
 					short name = (c->recv_buffer[total + 3] << 8) | c->recv_buffer[total + 2];
 					//short name = (short)stoi(n);
-					printf("name is %d\n", name);
+					//printf("received block %d name is %d\n", block_type, name);
 					total += 5;
 					gen_block(block_type, name);
 					if (c->recv_buffer.size() > total) type = c->recv_buffer[total];
 				}
 				if (type == 'm') {
 					//whole message *is* here, so set current server message:
-					printf("received update\n");
+					//printf("received update\n");
 					server_message = std::string(c->recv_buffer.begin() + 1 + total, c->recv_buffer.begin() + 121 + total);
 					//printf("sizeee %s\n", server_message.c_str());
 					//total += 121; // 'm' + 120
@@ -350,6 +380,9 @@ void PlayMode::gen_piece(uint8_t ptype, size_t row, size_t col) {
 void PlayMode::move_belt() {
 	for (size_t i = 0; i < belt.size(); i++) {
 		belt[i]->t->position.y -= 0.1f;
+		if (belt[i]->t->position.y < -15.0f) {
+			belt[i]->t->scale = glm::vec3(0.0f, 0.0f, 0.0f);
+		}
 	}
 }
 
@@ -366,14 +399,15 @@ uint8_t PlayMode::place_block() {
 	if (std::max(placer->position[0] - 3.0f, camera->transform->position[0] - 1.0f) <= std::min(placer->position[0] + 3.0f, camera->transform->position[0] + 1.0f) &&
 		std::max(placer->position[1], camera->transform->position[1] - 1.0f) <= std::min(placer->position[1] + 18.0f, camera->transform->position[1] + 1.0f)) {
 		size_t est = (int)((camera->transform->position.y + 10.0f) / 2.0f);
+		//printf("oirignal est %zd\n", est);
 		size_t half = (size_t)((held->rot[0].size()) / 2);
-		est -= half;
+		if (half <= est) est -= half;
 		if (est > (10 - held->rot[0].size())) est = 10 - held->rot[0].size();
 		if (est < 0) est = 0;
-		printf("place %d %zd\n", (uint8_t)est, est);
+		//printf("place %d\n", (uint8_t)est);
 		return (uint8_t)est;
 	}
-	printf("fail place\n");
+	//printf("fail place\n");
 	return 69;
 }
 
@@ -387,42 +421,42 @@ bool PlayMode::pickup() {
 			h->btype = belt[i]->btype;
 			h->name = belt[i]->name;
 			if (h->btype == 0) {
-				printf("pick i");
+				//printf("pick i");
 				std::vector<std::vector<bool>> piece{{true, true, true, true}};
 				h->rot = piece;
 			}
 			if (h->btype == 1) {
-				printf("pick j");
+				//printf("pick j");
 				std::vector<std::vector<bool>> piece{{true, false, false}, {true, true, true}};
 				h->rot = piece;
 			}
 			if (h->btype == 2) {
-				printf("pick l");
+				//printf("pick l");
 				std::vector<std::vector<bool>> piece{{false, false, true}, { true, true, true}};
 				h->rot = piece;
 			}
 			if (h->btype == 3) {
-				printf("pick s");
+				//printf("pick s");
 				std::vector<std::vector<bool>> piece{{false, true, true}, {true, true, false}};
 				h->rot = piece;
 			}
 			if (h->btype == 4) {
-				printf("pick z");
+				//printf("pick z");
 				std::vector<std::vector<bool>> piece{{true, true, false}, {false, true, true}};
 				h->rot = piece;
 			}
 			if (h->btype == 5) {
-				printf("pick t");
+				//printf("pick t");
 				std::vector<std::vector<bool>> piece{{false, true, false}, {true, true, true}};
 				h->rot = piece;
 			}
 			if (h->btype == 6) {
-				printf("pick o");
+				//printf("pick o");
 				std::vector<std::vector<bool>> piece{{true, true}, {true, true}};
 				h->rot = piece;
 			}
 			held = h;
-			printf("done pickup %d\n", h->name);
+			//printf("done pickup %d\n", h->name);
 			return true;
 		}
 	}
@@ -430,23 +464,26 @@ bool PlayMode::pickup() {
 }
 
 void PlayMode::receive_erase(short name, char erase_type) {
-	printf("erasing %d\n", name);
+	//printf("erasing %d\n", name);
 	for (size_t i = 0; i < belt.size(); i++) {
 		if (belt[i]->name == name) {
 			if (erase_type == 't') {
-				belt[i]->t->position = camera->transform->position;
-				belt[i]->t->position.z = camera->transform->position.z + 3.0f;
-				belt[i]->t->scale.x *= 0.2f;
-				belt[i]->t->scale.y *= 0.2f;
-				belt[i]->t->scale.z *= 0.2f;
+				belt[i]->t->scale = glm::vec3(0.0f, 0.0f, 0.0f);
 			} else if (erase_type == 'o') {
 				belt[i]->t->scale = glm::vec3(0.0f, 0.0f, 0.0f);
 			}
 			belt.erase(belt.begin() + i);
-			printf("erased\n");
+			//printf("erased\n");
 			return;
 		}
 	}
+}
+
+void PlayMode::boundaries() {
+	if (camera->transform->position.x > 27.0f) camera->transform->position.x = 27.0f;
+	if (camera->transform->position.x < 2.0f) camera->transform->position.x = 2.0f;
+	if (camera->transform->position.y > 10.0f) camera->transform->position.y = 10.0f;
+	if (camera->transform->position.y < -10.0f) camera->transform->position.y = -10.0f;
 }
 
 void PlayMode::get_board() {
@@ -478,6 +515,12 @@ void PlayMode::get_board() {
 				//printf("replace %p\n", pieces[rowcount][colcount]);
 				pieces[rowcount][colcount]->pipeline = pdraw[ptype].p;
 			}
+		} else if (ptype == 7) {
+			if (pieces[rowcount][colcount] != 0) {
+				pieces[rowcount][colcount]->transform->scale = glm::vec3(0.0f,0.0f,0.0f);
+				pieces[rowcount][colcount]->transform->position = glm::vec3(0.0f,0.0f,-100.0f);
+				pieces[rowcount][colcount] = 0;
+			}
 		}
 		colcount++;
 		if (colcount == 10) {
@@ -503,7 +546,7 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 	GL_ERRORS();
 	glUseProgram(0);
 
-	glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+	glClearColor(0.1f, 0.4f, 0.7f, 0.8f);
 	glClearDepth(1.0f); //1.0 is actually the default value to clear the depth buffer to, but FYI you can change it.
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -535,23 +578,28 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 		};
 
 		//draw_text(glm::vec2(-aspect + 0.1f, 0.0f), server_message, 0.09f);
+		if (lost) {
+			std::string display = "Game Over! Final score: " + std::to_string(score);
+			draw_text(glm::vec2(-0.4f, 0.0f), display, 0.09f);
+		}
 
-		if (held != nullptr) {
-			
+		else {
 			std::string display = "Held:";
 			draw_text(glm::vec2(-aspect + 0.1f,-0.5f), display, 0.09f);
-			
-			//printf("%zd, %zd\n", held->rot.size(),  held->rot[0].size());
-			for (size_t i = 0; i < held->rot.size(); i++) {
-				std::string show;
-				for (size_t j = 0; j < held->rot[i].size(); j++) {
-					//printf("%zd, %zd\n", i, j);
-					if (held->rot[i][j]) show = show + "O";
-					else show = show + " ";
+			if (held != nullptr) {
+				//printf("%zd, %zd\n", held->rot.size(),  held->rot[0].size());
+				for (size_t i = 0; i < held->rot.size(); i++) {
+					std::string show;
+					for (size_t j = 0; j < held->rot[i].size(); j++) {
+						//printf("%zd, %zd\n", i, j);
+						if (held->rot[i][j]) show = show + "O";
+						else show = show + " ";
+					}
+					draw_text(glm::vec2(-aspect + 0.1f,-0.5f - (i+1)*0.1 ), show, 0.09f);
 				}
-				draw_text(glm::vec2(-aspect + 0.1f,-0.5f - (i+1)*0.1 ), show, 0.09f);
 			}
 		}
+		
 		
 	}
 	GL_ERRORS();
